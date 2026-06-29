@@ -1709,50 +1709,100 @@ window.addEventListener('pagehide', addVisibleTime);
 let audioSource = 'uk';
 let currentAudio = null;
 let currentBtn = null;
+let currentUtterance = null;
 const SYNS_DETAIL = window.SYNS_DETAIL || {};
-const TTS_ENDPOINT = './api/tts';
-const TTS_VERSION = '20260525-jenny';
+const NOVELTY_VOICE_PARTS = [
+  'bells', 'boing', 'bubbles', 'cellos', 'good news', 'bad news',
+  'bahh', 'deranged', 'hysterical', 'organ', 'superstar', 'trinoids',
+  'whisper', 'wobble', 'zarvox'
+];
+const PREFERRED_VOICE_PARTS = {
+  us: ['samantha', 'alex', 'ava', 'allison', 'joelle', 'karen'],
+  uk: ['daniel', 'serena', 'jamie', 'oliver', 'kate']
+};
 
 function stopSpeaking() {
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  currentUtterance = null;
   if (currentBtn) { currentBtn.classList.remove('playing'); currentBtn = null; }
 }
 
 function speak(text, rate, btn) {
+  const cleanText = String(text || '').trim();
+  if (!cleanText) return;
   stopSpeaking();
   if (btn) { btn.classList.add('playing'); currentBtn = btn; }
   const clear = () => { if (btn) btn.classList.remove('playing'); if (currentBtn === btn) currentBtn = null; };
-  playAudioUrl(buildGoogleTtsUrl(text), clear, clear);
+  if (isSingleWord(cleanText)) {
+    playAudioUrl(buildYoudaoTtsUrl(cleanText), clear, () =>
+      playAudioUrl(buildBaiduTtsUrl(cleanText), clear, () => speakWithSystemVoice(cleanText, rate, clear))
+    );
+  } else {
+    playAudioUrl(buildBaiduTtsUrl(cleanText), clear, () => speakWithSystemVoice(cleanText, rate, clear));
+  }
 }
 
-function buildServerTtsUrl(text, rate) {
-  const url = new URL(TTS_ENDPOINT, window.location.origin);
-  url.searchParams.set('text', text);
-  url.searchParams.set('accent', audioSource === 'us' ? 'us' : 'uk');
-  url.searchParams.set('rate', toServerRate(text, rate));
-  url.searchParams.set('v', TTS_VERSION);
-  return url.toString();
+function isSingleWord(text) {
+  return /^[A-Za-z][A-Za-z'’-]*$/.test(text.trim());
 }
 
-function buildGoogleTtsUrl(text) {
-  const isUS = audioSource === 'us';
-  const lang = isUS ? 'en-US' : 'en-GB';
-  return 'https://translate.googleapis.com/translate_tts?ie=UTF-8&q=' + encodeURIComponent(text) + '&tl=' + lang + '&client=gtx&sl=en';
+function buildYoudaoTtsUrl(text) {
+  const type = audioSource === 'us' ? '2' : '1';
+  return 'https://dict.youdao.com/dictvoice?audio=' + encodeURIComponent(text) + '&type=' + type;
 }
 
-function toServerRate(text, rate) {
-  const words = String(text).trim().split(/\s+/).filter(Boolean).length;
-  if (words <= 1) return '+0%';
-  if (rate <= 0.9) return '-4%';
-  if (rate >= 1.05) return '+2%';
-  return '-6%';
+function buildBaiduTtsUrl(text) {
+  const speed = isSingleWord(text) ? '4' : '3';
+  return 'https://fanyi.baidu.com/gettts?lan=en&text=' + encodeURIComponent(text) + '&spd=' + speed + '&source=web';
+}
+
+function speakWithSystemVoice(text, rate, clear) {
+  if (!('speechSynthesis' in window) || !window.SpeechSynthesisUtterance) {
+    clear();
+    return;
+  }
+  const lang = audioSource === 'us' ? 'en-US' : 'en-GB';
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = lang;
+  utterance.rate = Math.max(0.65, Math.min(Number(rate) || 1, 1.05));
+  const voice = pickSystemVoice(lang);
+  if (voice) {
+    utterance.voice = voice;
+    utterance.lang = voice.lang || lang;
+  }
+  utterance.onend = clear;
+  utterance.onerror = clear;
+  currentUtterance = utterance;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+}
+
+function pickSystemVoice(lang) {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const target = String(lang).toLowerCase();
+  const usable = voices.filter(voice => {
+    const name = String(voice.name || '').toLowerCase();
+    const vLang = String(voice.lang || '').toLowerCase();
+    return vLang.startsWith(target.slice(0, 2)) &&
+      !NOVELTY_VOICE_PARTS.some(part => name.includes(part));
+  });
+  const preferred = PREFERRED_VOICE_PARTS[audioSource] || [];
+  for (const part of preferred) {
+    const found = usable.find(voice => String(voice.name || '').toLowerCase().includes(part));
+    if (found) return found;
+  }
+  return usable.find(voice => String(voice.lang || '').toLowerCase() === target) || usable[0] || null;
 }
 
 function playAudioUrl(url, onEnded, onFailed) {
-  currentAudio = new Audio(url);
-  currentAudio.onended = onEnded;
-  currentAudio.onerror = onFailed;
-  currentAudio.play().catch(onFailed);
+  const audio = new Audio(url);
+  currentAudio = audio;
+  audio.preload = 'auto';
+  audio.onended = onEnded;
+  audio.onerror = () => { if (currentAudio === audio) currentAudio = null; onFailed(); };
+  audio.play().catch(() => { if (currentAudio === audio) currentAudio = null; onFailed(); });
 }
 
 document.addEventListener('click', e => {
