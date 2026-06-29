@@ -1,12 +1,9 @@
-const CACHE_NAME = "basic850-pwa-v5";
+const CACHE_NAME = "ogden850-learned-v1";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./app.js?v=5",
   "./manifest.webmanifest",
-  "./icons/icon.svg",
-  "./data/words.jsonl"
+  "./icons/icon.svg"
 ];
 
 self.addEventListener("install", (event) => {
@@ -25,12 +22,29 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
+  const request = event.request;
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
+          return response;
+        })
+        .catch(() => caches.match("./index.html"))
+    );
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(request).then((cached) => {
       if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+      return fetch(request).then((response) => {
+        if (new URL(request.url).origin === location.origin) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        }
         return response;
       });
     })

@@ -1,12 +1,12 @@
 {
-  "name": "词骨英语 850",
-  "short_name": "词骨英语",
-  "description": "Basic English 850 词学习卡片",
+  "name": "Ogden Basic English 850",
+  "short_name": "Ogden 850",
+  "description": "Ogden Basic English 850 词学习手册，带已学会隐藏和今日统计。",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f7f2e8",
-  "theme_color": "#f7f2e8",
+  "background_color": "#faf6ed",
+  "theme_color": "#faf6ed",
   "orientation": "portrait",
   "icons": [
     {
