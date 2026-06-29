@@ -1739,7 +1739,9 @@ function speak(text, rate, btn) {
       playAudioUrl(buildBaiduTtsUrl(cleanText), clear, () => speakWithSystemVoice(cleanText, rate, clear))
     );
   } else {
-    playAudioUrl(buildBaiduTtsUrl(cleanText), clear, () => speakWithSystemVoice(cleanText, rate, clear));
+    speakWithSystemVoice(cleanText, rate, clear, () =>
+      playAudioUrl(buildBaiduTtsUrl(cleanText), clear, clear)
+    );
   }
 }
 
@@ -1757,10 +1759,10 @@ function buildBaiduTtsUrl(text) {
   return 'https://fanyi.baidu.com/gettts?lan=en&text=' + encodeURIComponent(text) + '&spd=' + speed + '&source=web';
 }
 
-function speakWithSystemVoice(text, rate, clear) {
+function speakWithSystemVoice(text, rate, clear, onUnavailable = clear) {
   if (!('speechSynthesis' in window) || !window.SpeechSynthesisUtterance) {
-    clear();
-    return;
+    onUnavailable();
+    return false;
   }
   const lang = audioSource === 'us' ? 'en-US' : 'en-GB';
   const utterance = new SpeechSynthesisUtterance(text);
@@ -1772,10 +1774,12 @@ function speakWithSystemVoice(text, rate, clear) {
     utterance.lang = voice.lang || lang;
   }
   utterance.onend = clear;
-  utterance.onerror = clear;
+  utterance.onerror = onUnavailable;
   currentUtterance = utterance;
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utterance);
+  window.speechSynthesis.resume();
+  return true;
 }
 
 function pickSystemVoice(lang) {
