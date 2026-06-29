@@ -273,6 +273,7 @@ button.pill {
 .pill.active[data-cat="pt"] { background: var(--pt); color: #fff; border-color: var(--pt); }
 .pill.active[data-cat="qg"] { background: var(--qg); color: #fff; border-color: var(--qg); }
 .pill.active[data-cat="qo"] { background: var(--qo); color: #fff; border-color: var(--qo); }
+.pill.active[data-cat="learned"] { background: #0f766e; color: #fff; border-color: #0f766e; }
 .pill.active[data-cat="all"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .pill .count {
   opacity: 0.7;
@@ -1318,6 +1319,7 @@ button.flash-back-syn:hover { color: var(--ink); border-color: var(--ink-faint);
       </div>
       <div class="pills" id="pills" aria-label="分类导航">
         <button type="button" class="pill active" data-cat="all" aria-pressed="true">All · 全部 <span class="count">850</span></button>
+        <button type="button" class="pill" data-cat="learned" aria-pressed="false">Learned · 已学会 <span class="count">0</span></button>
         <button type="button" class="pill" data-cat="op" aria-pressed="false">Operations · 操作词 <span class="count">100</span></button>
         <button type="button" class="pill" data-cat="gt" aria-pressed="false">General Things · 通用词 <span class="count">400</span></button>
         <button type="button" class="pill" data-cat="pt" aria-pressed="false">Picturable · 图示词 <span class="count">200</span></button>
@@ -1349,6 +1351,15 @@ button.flash-back-syn:hover { color: var(--ink); border-color: var(--ink-faint);
 </nav>
 
 <main>
+  <section class="section" id="sec-learned" data-cat="learned" hidden>
+    <div class="section-header">
+      <h2>Learned</h2>
+      <span class="zh">已学会 · 最新加入的在前面</span>
+      <span class="count">0 WORDS</span>
+    </div>
+    <div class="grid" id="grid-learned"></div>
+  </section>
+
   <section class="section" id="sec-op" data-cat="op">
     <div class="section-header">
       <h2>Operations</h2>
@@ -1409,6 +1420,7 @@ button.flash-back-syn:hover { color: var(--ink); border-color: var(--ink-faint);
   <div class="flash-cat-nav" id="flash-cat-nav" aria-label="卡片分类">
     <div class="flash-cat-pills">
       <button class="pill active" type="button" data-cat="all" aria-pressed="true">All · 全部 <span class="count">850</span></button>
+      <button class="pill" type="button" data-cat="learned" aria-pressed="false">Learned · 已学会 <span class="count">0</span></button>
       <button class="pill" type="button" data-cat="op" aria-pressed="false">Operations · 操作词 <span class="count">100</span></button>
       <button class="pill" type="button" data-cat="gt" aria-pressed="false">General Things · 通用词 <span class="count">400</span></button>
       <button class="pill" type="button" data-cat="pt" aria-pressed="false">Picturable · 图示词 <span class="count">200</span></button>
@@ -1463,10 +1475,11 @@ function toDisplayZh(text) {
 
 const LEARNED_KEY = 'ogdenLearnedWordsV1';
 const DAILY_KEY = 'ogdenDailyStatsV1';
-let learnedList = readJson(LEARNED_KEY, []);
+let learnedList = sanitizeLearnedList(readJson(LEARNED_KEY, []));
 let learnedWords = new Set(learnedList);
 let dailyStats = readJson(DAILY_KEY, {});
 let visibleStartedAt = document.visibilityState === 'visible' ? Date.now() : null;
+let wordMap = new Map();
 
 function readJson(key, fallback) {
   try {
@@ -1502,6 +1515,25 @@ function normalizeWord(word) {
   return String(word || '').trim().toLowerCase();
 }
 
+function normalizeLearnedEntry(entry) {
+  if (typeof entry === 'string') return normalizeWord(entry);
+  if (entry && typeof entry === 'object') return normalizeWord(entry.word || entry.w);
+  return '';
+}
+
+function sanitizeLearnedList(value) {
+  const source = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const cleaned = [];
+  for (const entry of source) {
+    const key = normalizeLearnedEntry(entry);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(key);
+  }
+  return cleaned;
+}
+
 function isLearned(word) {
   return learnedWords.has(normalizeWord(word));
 }
@@ -1510,8 +1542,27 @@ function activeWords() {
   return words.filter(w => !isLearned(w.w));
 }
 
+function learnedReviewWords() {
+  const seen = new Set();
+  const ordered = [];
+  for (let i = learnedList.length - 1; i >= 0; i--) {
+    const key = normalizeLearnedEntry(learnedList[i]);
+    if (!key || !learnedWords.has(key) || seen.has(key)) continue;
+    const word = wordMap.get(key);
+    if (!word) continue;
+    seen.add(key);
+    ordered.push(word);
+  }
+  for (const key of learnedWords) {
+    if (seen.has(key)) continue;
+    const word = wordMap.get(key);
+    if (word) ordered.push(word);
+  }
+  return ordered;
+}
+
 function saveLearned() {
-  learnedList = learnedList.filter((word, idx, arr) => word && arr.indexOf(word) === idx && learnedWords.has(word));
+  learnedList = sanitizeLearnedList(learnedList).filter(word => learnedWords.has(word));
   writeJson(LEARNED_KEY, learnedList);
 }
 
@@ -1527,14 +1578,11 @@ function markLearned(word) {
   return true;
 }
 
-function restoreRecentLearned() {
-  let key = '';
-  while (learnedList.length && !key) {
-    const candidate = learnedList.pop();
-    if (learnedWords.has(candidate)) key = candidate;
-  }
-  if (!key) return;
+function restoreLearnedWord(word) {
+  const key = normalizeWord(word);
+  if (!key || !learnedWords.has(key)) return false;
   learnedWords.delete(key);
+  learnedList = learnedList.filter(entry => normalizeLearnedEntry(entry) !== key);
   const today = getTodayStats();
   today.words = today.words.filter(word => word !== key);
   saveLearned();
@@ -1542,6 +1590,13 @@ function restoreRecentLearned() {
   filter();
   refreshFlashAfterLearnedChange();
   updateStudyStats();
+  return true;
+}
+
+function restoreRecentLearned() {
+  const key = learnedReviewWords()[0]?.w || '';
+  if (!key) return;
+  restoreLearnedWord(key);
 }
 
 function formatStudyTime(seconds) {
@@ -1579,7 +1634,7 @@ function updateStudyStats() {
 }
 
 function updateRemainingCounts() {
-  const counts = { all: 0, op: 0, gt: 0, pt: 0, qg: 0, qo: 0 };
+  const counts = { all: 0, learned: learnedWords.size, op: 0, gt: 0, pt: 0, qg: 0, qo: 0 };
   for (const w of activeWords()) {
     counts.all++;
     if (counts[w.c] != null) counts[w.c]++;
@@ -1597,47 +1652,80 @@ function updateRemainingCounts() {
 
 function refreshFlashAfterLearnedChange() {
   if (!flashOverlay || flashOverlay.hidden) return;
-  flashWords = flashWords.filter(w => !isLearned(w.w));
+  const currentWord = flashWords[flashIdx]?.w;
+  flashWords = getFlashWordsForCat(flashCat);
+  const nextIdx = currentWord ? flashWords.findIndex(w => w.w === currentWord) : -1;
+  if (nextIdx >= 0) flashIdx = nextIdx;
   if (flashIdx >= flashWords.length) flashIdx = 0;
   flashRender({ autoSpeak: false });
+}
+
+function buildWordCard(w, options = {}) {
+  const action = options.review ? 'restore' : 'learn';
+  const actionText = options.review ? '恢复学习' : '已学会';
+  const synsHtml = (w.s||[]).map(s =>
+    `<button class="syn" data-syn="${escapeAttr(s)}" data-main="${escapeAttr(w.w)}">${s}</button>`
+  ).join('');
+  const coreHtml = w.core ? `<div class="core-sense">
+    <div class="core-sense-label">核心意象 <em>Core Sense</em></div>
+    <div class="core-sense-text" data-zh="${escapeAttr(w.core)}">${w.core}</div>
+  </div>` : '';
+  return `
+    <article class="card" data-cat="${w.c}" data-w="${w.w}">
+      <div class="card-head">
+        <div class="word-row">
+          <button class="word speak-text" data-text="${escapeAttr(w.w)}" data-rate="0.85" aria-label="读单词">${w.w}</button>
+          <button class="speak" data-text="${escapeAttr(w.w)}" data-rate="0.85" aria-label="读单词">${SPEAKER_SVG}</button>
+          <button class="learned-btn" type="button" data-action="${action}" data-word="${escapeAttr(w.w)}">${actionText}</button>
+        </div>
+        <div class="ipa" data-word="${escapeAttr(w.w)}"></div>
+        <span class="tag">${TAGS[w.c]}</span>
+      </div>
+      <div class="def-zh" data-zh="${escapeAttr(w.zh)}">${w.zh}</div>
+      ${coreHtml}
+      <div class="def-en">
+        <div class="def-en-label">英文释义 <em>Definition</em></div>
+        <div class="def-en-body"><button class="speak speak-inline" data-text="${escapeAttr(w.en)}" data-rate="0.9" aria-label="读英文释义">${SPEAKER_SVG}</button><span>${w.en}</span></div>
+      </div>
+      <div class="example">
+        <button class="speak" data-text="${escapeAttr(w.ex)}" data-rate="1.0" aria-label="读例句">${SPEAKER_SVG}</button>
+        <div class="en">${w.ex}</div>
+        <div class="zh" data-zh="${escapeAttr(w.exz)}">${w.exz}</div>
+      </div>
+      <div class="syns-header">近义词 <em>Synonyms</em></div>
+      <div class="syns">${synsHtml}</div>
+      <div class="syn-panel" hidden></div>
+    </article>`;
+}
+
+function wordMatchesQuery(w, q) {
+  if (!q) return true;
+  return [
+    w.w,
+    w.zh,
+    w.en,
+    w.ex,
+    w.exz,
+    w.core,
+    ...(w.s || [])
+  ].filter(Boolean).join(' ').toLowerCase().includes(q);
+}
+
+function renderLearnedReview(q) {
+  const learnedSection = document.getElementById('sec-learned');
+  const learnedGrid = document.getElementById('grid-learned');
+  const reviewWords = learnedReviewWords().filter(w => wordMatchesQuery(w, q));
+  learnedGrid.innerHTML = reviewWords.map(w => buildWordCard(w, { review: true })).join('');
+  learnedSection.hidden = false;
+  learnedSection.style.display = '';
+  observeIpa(learnedGrid);
+  return reviewWords.length;
 }
 
 function render(words) {
   const grids = { op:[], gt:[], pt:[], qg:[], qo:[] };
   for (const w of words) {
-    const synsHtml = (w.s||[]).map(s =>
-      `<button class="syn" data-syn="${escapeAttr(s)}" data-main="${escapeAttr(w.w)}">${s}</button>`
-    ).join('');
-    const coreHtml = w.core ? `<div class="core-sense">
-      <div class="core-sense-label">核心意象 <em>Core Sense</em></div>
-      <div class="core-sense-text" data-zh="${escapeAttr(w.core)}">${w.core}</div>
-    </div>` : '';
-    const card = `
-      <article class="card" data-cat="${w.c}" data-w="${w.w}">
-        <div class="card-head">
-          <div class="word-row">
-            <button class="word speak-text" data-text="${escapeAttr(w.w)}" data-rate="0.85" aria-label="读单词">${w.w}</button>
-            <button class="speak" data-text="${escapeAttr(w.w)}" data-rate="0.85" aria-label="读单词">${SPEAKER_SVG}</button>
-            <button class="learned-btn" type="button" data-word="${escapeAttr(w.w)}">已学会</button>
-          </div>
-          <div class="ipa" data-word="${escapeAttr(w.w)}"></div>
-          <span class="tag">${TAGS[w.c]}</span>
-        </div>
-        <div class="def-zh" data-zh="${escapeAttr(w.zh)}">${w.zh}</div>
-        ${coreHtml}
-        <div class="def-en">
-          <div class="def-en-label">英文释义 <em>Definition</em></div>
-          <div class="def-en-body"><button class="speak speak-inline" data-text="${escapeAttr(w.en)}" data-rate="0.9" aria-label="读英文释义">${SPEAKER_SVG}</button><span>${w.en}</span></div>
-        </div>
-        <div class="example">
-          <button class="speak" data-text="${escapeAttr(w.ex)}" data-rate="1.0" aria-label="读例句">${SPEAKER_SVG}</button>
-          <div class="en">${w.ex}</div>
-          <div class="zh" data-zh="${escapeAttr(w.exz)}">${w.exz}</div>
-        </div>
-        <div class="syns-header">近义词 <em>Synonyms</em></div>
-        <div class="syns">${synsHtml}</div>
-        <div class="syn-panel" hidden></div>
-      </article>`;
+    const card = buildWordCard(w);
     if (grids[w.c]) grids[w.c].push(card);
   }
   for (const k of Object.keys(grids)) {
@@ -1649,6 +1737,25 @@ function filter() {
   const q = document.getElementById('q').value.trim().toLowerCase();
   const activeCat = document.querySelector('#pills .pill.active').dataset.cat;
   let visible = 0;
+
+  if (activeCat === 'learned') {
+    visible = renderLearnedReview(q);
+    document.querySelectorAll('.section:not(#sec-learned)').forEach(section => {
+      section.style.display = 'none';
+    });
+    const empty = document.getElementById('empty');
+    empty.textContent = learnedWords.size ? '已学会里没找到匹配的词。' : '还没有已学会的单词。';
+    empty.classList.toggle('show', visible === 0);
+    updateRemainingCounts();
+    updateStudyStats();
+    return;
+  }
+
+  const learnedSection = document.getElementById('sec-learned');
+  learnedSection.hidden = true;
+  learnedSection.style.display = 'none';
+  document.getElementById('empty').textContent = '没找到匹配的词。换个词试试?';
+
   document.querySelectorAll('.card').forEach(c => {
     const w = c.dataset.w.toLowerCase();
     const text = c.textContent.toLowerCase();
@@ -1683,6 +1790,7 @@ document.querySelectorAll('#pills .pill').forEach(p => {
 });
 document.getElementById('restore-learned')?.addEventListener('click', restoreRecentLearned);
 const words = JSON.parse(document.getElementById('data').textContent);
+wordMap = new Map(words.map(w => [normalizeWord(w.w), w]));
 const IPA_DATA = JSON.parse(document.getElementById('ipa-data').textContent);
 render(words);
 filter();
@@ -1814,7 +1922,9 @@ document.addEventListener('click', e => {
   if (learnedBtn) {
     e.stopPropagation();
     const word = learnedBtn.dataset.word;
-    if (markLearned(word)) {
+    if (learnedBtn.dataset.action === 'restore') {
+      restoreLearnedWord(word);
+    } else if (markLearned(word)) {
       const card = learnedBtn.closest('.card');
       if (card) card.classList.add('learning-hide');
       setTimeout(() => {
@@ -2018,6 +2128,14 @@ function refreshIpaForAccent() {
   }
 }
 
+function observeIpa(root = document) {
+  root.querySelectorAll('.ipa[data-word]').forEach(el => {
+    if (el.dataset.observed === '1') return;
+    el.dataset.observed = '1';
+    ipaObserver.observe(el);
+  });
+}
+
 const ipaObserver = new IntersectionObserver(entries => {
   for (const e of entries) {
     if (!e.isIntersecting) continue;
@@ -2029,10 +2147,10 @@ const ipaObserver = new IntersectionObserver(entries => {
   }
 }, { rootMargin: '300px' });
 
-document.querySelectorAll('.ipa[data-word]').forEach(el => ipaObserver.observe(el));
+observeIpa();
 
 /* ====== FLASH CARD 卡片练习 ====== */
-const CAT_FULL = { op: 'OP · 操作词', gt: 'GT · 通用词', pt: 'PT · 图示词', qg: 'QG · 性质词', qo: 'OPP · 反义对' };
+const CAT_FULL = { all: 'All · 全部', learned: 'Learned · 已学会', op: 'OP · 操作词', gt: 'GT · 通用词', pt: 'PT · 图示词', qg: 'QG · 性质词', qo: 'OPP · 反义对' };
 let flashWords = [];
 let flashIdx = 0;
 let flashCat = 'all';
@@ -2064,9 +2182,14 @@ function updateFlashCatPills() {
   });
 }
 
+function getFlashWordsForCat(cat) {
+  if (cat === 'learned') return learnedReviewWords();
+  return words.filter(w => !isLearned(w.w) && (cat === 'all' || w.c === cat));
+}
+
 function setFlashCategory(cat, options = {}) {
   flashCat = cat || 'all';
-  flashWords = words.filter(w => !isLearned(w.w) && (flashCat === 'all' || w.c === flashCat));
+  flashWords = getFlashWordsForCat(flashCat);
   flashIdx = 0;
   updateFlashCatPills();
   flashRender({ autoSpeak: options.autoSpeak !== false });
@@ -2081,7 +2204,9 @@ function flashBuildBack(w) {
   const coreStr = w.core ? `<div class="flash-back-core"><span>核心意象 Core Sense</span><div data-zh="${escapeAttr(w.core)}">${coreTxt}</div></div>` : '';
   const exzTxt = toDisplayZh(w.exz);
   const spk = (txt, rate, label) => `<button class="speak speak-inline" data-text="${escapeAttr(txt)}" data-rate="${rate}" aria-label="${label}">${SPEAKER_SVG_SM}</button>`;
-  return `<div class="flash-back-word">${spk(w.w, 0.85, '读单词')}<button class="sp-word speak-text" data-text="${escapeAttr(w.w)}" data-rate="0.85" aria-label="读单词">${w.w}</button><button class="learned-btn" type="button" data-word="${escapeAttr(w.w)}">已学会</button></div>
+  const learnedAction = isLearned(w.w) ? 'restore' : 'learn';
+  const learnedLabel = learnedAction === 'restore' ? '恢复学习' : '已学会';
+  return `<div class="flash-back-word">${spk(w.w, 0.85, '读单词')}<button class="sp-word speak-text" data-text="${escapeAttr(w.w)}" data-rate="0.85" aria-label="读单词">${w.w}</button><button class="learned-btn" type="button" data-action="${learnedAction}" data-word="${escapeAttr(w.w)}">${learnedLabel}</button></div>
     ${ipaStr}
     <div class="flash-back-zh" data-zh="${escapeAttr(w.zh)}">${zhTxt}</div>
     ${coreStr}
@@ -2102,7 +2227,7 @@ function flashRender(options = {}) {
     document.getElementById('fc-word').textContent = '没有待学单词';
     document.getElementById('fc-word').dataset.text = '';
     document.getElementById('fc-cat').textContent = CAT_FULL[flashCat] || '当前分类';
-    document.getElementById('fc-back').innerHTML = '<div class="flash-back-zh">这个分类里的单词都已学会。</div>';
+    document.getElementById('fc-back').innerHTML = `<div class="flash-back-zh">${flashCat === 'learned' ? '还没有已学会的单词。' : '这个分类里的单词都已学会。'}</div>`;
     document.getElementById('flash-progress').textContent = '0 / 0';
     document.getElementById('flash-counter').textContent = '0 / 0';
     return;
