@@ -390,7 +390,7 @@ main {
   background: var(--bg-elev);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 18px 18px 16px;
+  padding: 18px 18px 54px;
   transition: border-color .15s, transform .15s, box-shadow .15s;
   position: relative;
   overflow: hidden;
@@ -569,6 +569,7 @@ button.word:hover, button.sp-word:hover, button.sp-main:hover {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 6px;
+  padding-right: 112px;
 }
 .syn {
   font-family: var(--sans);
@@ -743,6 +744,11 @@ button.word:hover, button.sp-word:hover, button.sp-main:hover {
   color: var(--ink);
   border-color: var(--ink-faint);
   background: var(--hover-bg);
+}
+.card > .learned-btn.card-action {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
 }
 .card.learning-hide {
   opacity: 0;
@@ -1676,7 +1682,6 @@ function buildWordCard(w, options = {}) {
         <div class="word-row">
           <button class="word speak-text" data-text="${escapeAttr(w.w)}" data-rate="0.85" aria-label="读单词">${w.w}</button>
           <button class="speak" data-text="${escapeAttr(w.w)}" data-rate="0.85" aria-label="读单词">${SPEAKER_SVG}</button>
-          <button class="learned-btn" type="button" data-action="${action}" data-word="${escapeAttr(w.w)}">${actionText}</button>
         </div>
         <div class="ipa" data-word="${escapeAttr(w.w)}"></div>
         <span class="tag">${TAGS[w.c]}</span>
@@ -1695,6 +1700,7 @@ function buildWordCard(w, options = {}) {
       <div class="syns-header">近义词 <em>Synonyms</em></div>
       <div class="syns">${synsHtml}</div>
       <div class="syn-panel" hidden></div>
+      <button class="learned-btn card-action" type="button" data-action="${action}" data-word="${escapeAttr(w.w)}">${actionText}</button>
     </article>`;
 }
 
